@@ -1,0 +1,24 @@
+[
+  {
+    "part": "Part 3",
+    "test_set": 1,
+    "question_number": 1,
+    "question": "How often do you visit a museum? Who are you usually going with?",
+    "answers": {
+      "high": [
+        "I usually visit a museum every couple of months, especially when there’s an exhibition that interests me.",
+        "I often go with my sister because we both enjoy learning about art and history.",
+        "We like to talk about the exhibits afterward over coffee, which makes the experience more meaningful."
+      ],
+      "medium": [
+        "I visit museums a few times a year, usually when there's something special on display.",
+        "I usually go with my friends because we enjoy spending time together while looking around."
+      ],
+      "low": [
+        "I sometimes go to museums with my friends."
+      ]
+    }
+  }
+]
+
+
