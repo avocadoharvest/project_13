@@ -50,7 +50,25 @@ def get_question(set_id: int, question_id: str) -> dict:
     return None
 
 # 예시 실행
-user_input = "I usually go to different hair salons because I like to try new styles."
+
+import speech_recognition as sr
+import whisper
+
+model = whisper.load_model("base")
+r = sr.Recognizer()
+with sr.Microphone(sample_rate=16000) as source:
+    print("말씀하세요...")
+    audio = r.listen(source)
+    # 음성 데이터 파일로 저장해도 가능
+    data = audio.get_wav_data()
+    # Whisper에서 바로 NumPy 배열로 변환
+    import numpy as np
+    wav = np.frombuffer(data, np.int16).astype(np.float32) / 32768.0
+    result = model.transcribe(wav, language='en', fp16=False)
+    print(result['text'])
+
+# user_input = "I usually go to different hair salons because I like to try new styles."
+user_input = result['text']
 question_info = get_question(set_id=1, question_id="3-3")
 
 result = evaluate_with_bertscore(user_input, question_info["answers"])
