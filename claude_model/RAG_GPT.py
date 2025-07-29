@@ -15,49 +15,57 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from gtts import gTTS
 import playsound
 
-def build_custom_rag_chain(retriever, prompt, model_name="microsoft/DialoGPT-large", temperature=0):
-    """커스텀 RAG 체인 생성 - RetrievalQA 문제 해결"""
-    
+def build_custom_rag_chain(retriever, prompt, model_name="microsoft/DialoGPT-large"):
     print(f"🤖 {model_name} 모델 로딩 중...")
     
-    # Hugging Face 파이프라인 생성
+    # 토큰 길이 제한을 고려한 파이프라인 설정
     hf_pipeline = pipeline(
         "text-generation",
         model=model_name,
         tokenizer=model_name,
-        max_new_tokens=300,
-        temperature=temperature,
-        do_sample=True if temperature > 0 else False,
+        max_length=1000,           # 최대 길이를 1000으로 제한
+        max_new_tokens=200,        # 새로 생성할 토큰만 200개로 제한
+        truncation=True,           # 입력이 길면 자동으로 자름
+        do_sample=False,
         device=0 if torch.cuda.is_available() else -1,
-        pad_token_id=50256  # GPT 모델용 패딩 토큰
+        pad_token_id=50256
     )
     
-    # LangChain LLM 래퍼
     llm = HuggingFacePipeline(pipeline=hf_pipeline)
-    
-    # LLM 체인 생성
     llm_chain = LLMChain(llm=llm, prompt=prompt)
     
-    # 커스텀 RAG 함수
     def rag_chain(inputs):
         question = inputs["question"]
         answer = inputs["answer"]
         
-        # 관련 문서 검색
+        # 문서 검색
         search_query = f"{question} {answer}"
-        docs = retriever.get_relevant_documents(search_query)
-        context = "\n\n".join([doc.page_content for doc in docs[:3]])  # 상위 3개 문서만 사용
+        docs = retriever.invoke(search_query)
         
-        # LLM에 전달
-        result = llm_chain.run(
-            context=context,
-            question=question,
-            answer=answer
-        )
+        # Context 길이 제한 (토큰 절약)
+        context = "\n\n".join([doc.page_content[:200] for doc in docs[:2]])  # 문서 2개, 각각 200자로 제한
         
-        return result
+        # 입력 텍스트 길이 체크 및 제한
+        full_input = f"참고문서: {context}\n문제: {question[:100]}\n답변: {answer[:100]}"  # 각각 길이 제한
+        
+        try:
+            result = llm_chain.invoke({
+                "context": context,
+                "question": question[:100],  # 문제도 100자로 제한
+                "answer": answer[:100]       # 답변도 100자로 제한
+            })
+            
+            if isinstance(result, dict) and 'text' in result:
+                return result['text']
+            else:
+                return str(result)
+                
+        except Exception as e:
+            print(f"LLM 처리 오류: {e}")
+            return "평가 실패: 텍스트가 너무 길거나 모델 오류"
     
     return rag_chain
+
 
 def load_vectorstore():
     """저장된 FAISS 벡터스토어를 로드하는 함수"""
@@ -69,10 +77,7 @@ def load_vectorstore():
         return None
     
     print("🔍 저장된 벡터스토어 로딩 중...")
-    # 임베딩 모델 (DB 생성할 때와 동일해야 함)
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    
-    # 저장된 벡터스토어 로드
     vectorstore = FAISS.load_local(db_path, embeddings, allow_dangerous_deserialization=True)
     print("✅ 벡터스토어 로딩 완료!")
     
@@ -81,14 +86,13 @@ def load_vectorstore():
 def main():
     """메인 실행 함수"""
     
-    # 저장된 벡터스토어 로드
     vectorstore = load_vectorstore()
     if vectorstore is None:
         return
     
     retriever = vectorstore.as_retriever()
     
-    # RAG 체인용 프롬프트 (커스텀 체인에 맞게 수정)
+    # 프롬프트 템플릿
     prompt = PromptTemplate.from_template("""
 당신은 영문 독해 시험의 평가자입니다. 다음 정보를 바탕으로 수험생의 답변을 평가해주세요.
 
@@ -108,13 +112,13 @@ def main():
 피드백: [한글로 구체적인 평가 2~3문장]
 """)
     
-    # 커스텀 RAG 체인 생성
+    # 커스텀 RAG 체인 생성 (temperature 파라미터 제거)
     evaluate_chain = build_custom_rag_chain(
-        retriever, 
-        prompt, 
-        model_name="microsoft/DialoGPT-large", 
-        temperature=0
-    )
+    retriever, 
+    prompt, 
+    model_name="microsoft/DialoGPT-large"
+)
+
     
     # 문제 추출
     print("📝 문제 추출 중...")
@@ -153,11 +157,10 @@ def main():
         print("🧠 AI 채점 중...")
         
         try:
-            # AI 평가 (커스텀 체인 사용)
+            # AI 평가
             evaluation = evaluate_chain({"question": question, "answer": user_answer})
             print("💡 AI 평가 결과:\n", evaluation)
             
-            # 결과 저장
             results.append({"문제": question, "답변": user_answer, "채점": evaluation})
             
         except Exception as e:
