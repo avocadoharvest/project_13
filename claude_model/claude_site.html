@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>AI 영어 독해 평가</title>
+    <style>
+        body { font-family: sans-serif; padding: 2rem; }
+        #question { font-size: 1.2rem; font-weight: bold; margin: 1rem 0; }
+        #result { margin-top: 2rem; }
+        .feedback { background: #fafafa; border: 1px solid #eee; padding: 1rem; margin-top: 1rem;}
+        textarea { margin: 1rem 0; }
+        button { margin: 0.2rem; }
+    </style>
+</head>
+<body>
+    <h1>AI 영어 독해 시험 (RAG 채점)</h1>
+    <div id="app">
+        <div id="menu">
+            <button id="startBtn">문제 풀기 시작</button>
+        </div>
+        <div id="questionArea" style="display:none;">
+            <div id="question"></div>
+            <div>
+                <button id="ttsBtn">문제 읽어주기🔊</button>
+                <button id="speechBtn">음성 답변 녹음🎤</button>
+            </div>
+            <div id="recordStatus"></div>
+            <textarea id="answer" rows="2" cols="80" placeholder="여기에 답변 입력 또는 음성 인식"></textarea><br>
+            <button id="submitBtn">AI 채점</button>
+        </div>
+        <div id="result"></div>
+    </div>
+
+    <script>
+    // ------ 상태(State) ------
+    let state = {
+        questions: [],
+        answers: [],
+        idx: 0      // 현재 문제 인덱스
+    };
+
+    // ------ 유틸 함수 ------
+    function show(elem) { elem.style.display = ""; }
+    function hide(elem) { elem.style.display = "none"; }
+    function setHtml(elem, html) { elem.innerHTML = html; }
+    function byId(id) { return document.getElementById(id); }
+
+    // ------ 초기 화면 이벤트 바인딩 ------
+    byId("startBtn").onclick = loadQuestions;
+    byId("ttsBtn").onclick = speakQuestion;
+    byId("speechBtn").onclick = startSpeechToText;
+    byId("submitBtn").onclick = onSubmitAnswer;
+
+    // ------ 문제 불러오기 ------
+    async function loadQuestions() {
+        setHtml(byId("result"), "");
+        setHtml(byId("question"), "문제 불러오는 중...");
+        try {
+            let res = await fetch("/api/questions");
+            if (!res.ok) throw new Error("문제지 서버 통신 실패");
+            state.questions = await res.json();
+            state.answers = [];
+            state.idx = 0;
+            if (state.questions.length === 0) throw new Error("문제가 없습니다.");
+            showQuestion();
+            show(byId("questionArea"));
+            hide(byId("menu"));
+        } catch (e) {
+            setHtml(byId("result"), `<div style="color:red;">오류: ${e.message}</div>`);
+        }
+    }
+
+    // ------ 문제 화면 렌더링 ------
+    function showQuestion() {
+        const idx = state.idx;
+        const qlen = state.questions.length;
+        setHtml(byId("question"), `[문제 ${idx+1}/${qlen}] ${state.questions[idx]}`);
+        byId("answer").value = "";
+        byId("recordStatus").textContent = "";
+        setHtml(byId("result"), "");
+    }
+
+    // ------ TTS 기능 ------
+    function speakQuestion() {
+        const q = state.questions[state.idx];
+        if (!q) return;
+        const utter = new SpeechSynthesisUtterance(q);
+        utter.lang = "en-US";
+        speechSynthesis.speak(utter);
+    }
+
+    // ------ 음성 인식 기능 ------
+    function startSpeechToText() {
+        if (!("webkitSpeechRecognition" in window)) {
+            alert("이 브라우저는 음성 인식을 지원하지 않습니다.");
+            return;
+        }
+        let recog = new webkitSpeechRecognition();
+        recog.lang = "en-US";
+        recog.interimResults = false;
+        recog.maxAlternatives = 1;
+        recog.onstart = ()=> { byId("recordStatus").textContent = "녹음 중..."; };
+        recog.onerror = e => { byId("recordStatus").textContent = "에러: "+e.error; };
+        recog.onend = ()=> { byId("recordStatus").textContent = ""; };
+        recog.onresult = ev => {
+            const text = ev.results[0][0].transcript;
+            byId("answer").value = text;
+        };
+        recog.start();
+    }
+
+    // ------ 답변 제출 및 채점 ------
+    async function onSubmitAnswer() {
+        const ans = byId("answer").value.trim();
+        if (!ans) {
+            alert("답변을 입력하거나 음성 인식 결과를 확인하세요.");
+            return;
+        }
+        setHtml(byId("result"), "🧠 채점 중...");
+        byId("submitBtn").disabled = true;
+        try {
+            const payload = {
+                question: state.questions[state.idx],
+                answer: ans
+            };
+            let res = await fetch("/api/evaluate", {
+                method: "POST",
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error("채점 서버 통신 실패");
+            let r = await res.json();
+            // 점수/피드백 처리 보장
+            renderFeedback(r.score, r.feedback);
+            state.answers.push({
+                question: state.questions[state.idx],
+                answer: ans,
+                score: r.score,
+                feedback: r.feedback
+            });
+        } catch (e) {
+            setHtml(byId("result"), `<div style="color:red;">오류: ${e.message}</div>`);
+        }
+        byId("submitBtn").disabled = false;
+    }
+
+    // ------ 채점 피드백 및 다음 문제 안내 ------
+    function renderFeedback(score, feedback) {
+        setHtml(byId("result"),
+            `<div class="feedback"><b>점수:</b> ${score}점<br>
+                <b>피드백:</b> ${feedback}</div>
+                <button id="nextBtn">${state.idx+1<state.questions.length ? "다음 문제로" : "전체 결과"}</button>
+            `
+        );
+        byId("nextBtn").onclick = ()=>{
+            state.idx++;
+            if (state.idx < state.questions.length) {
+                showQuestion();
+            } else {
+                showSummary();
+            }
+        };
+    }
+
+    // ------ 결과 요약 화면 ------
+    function showSummary() {
+        hide(byId("questionArea"));
+        let html = "<h2>전체 결과 요약</h2>";
+        state.answers.forEach((a, i) => {
+            html += `<div class="feedback">
+                <b>[문제 ${i+1}]</b> ${a.question}<br>
+                <b>답변:</b> ${a.answer}<br>
+                <b>점수:</b> ${a.score}점<br>
+                <b>피드백:</b> ${a.feedback}<br>
+            </div>`;
+        });
+        html += `<button onclick="location.reload()">다시 풀기</button>`;
+        setHtml(byId("result"), html);
+        show(byId("menu"));
+    }
+    </script>
+</body>
+</html>
