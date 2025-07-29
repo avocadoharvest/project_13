@@ -2,6 +2,10 @@
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain_anthropic import ChatAnthropic
+from transformers import pipeline
+from langchain.llms import HuggingFacePipeline
+from langchain.chains import RetrievalQA
+import torch
 
 def build_claude_chain(retriever, prompt_template, model_name="claude-3-haiku-20240307", temperature=0):
     from langchain_anthropic import ChatAnthropic
@@ -19,3 +23,28 @@ def build_claude_chain(retriever, prompt_template, model_name="claude-3-haiku-20
         | StrOutputParser()
     )
     return chain
+
+def build_gpt_chain(retriever, prompt, model_name="microsoft/DialoGPT-large", temperature=0):
+    # Hugging Face 파이프라인 생성
+    hf_pipeline = pipeline(
+        "text-generation",
+        model=model_name,
+        tokenizer=model_name,
+        max_length=512,
+        temperature=temperature,
+        do_sample=True,
+        device=0 if torch.cuda.is_available() else -1  # GPU 사용 가능하면 GPU, 아니면 CPU
+    )
+    
+    # LangChain용 LLM 래퍼
+    llm = HuggingFacePipeline(pipeline=hf_pipeline)
+    
+    # RetrievalQA 체인 생성
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=llm,
+        chain_type="stuff",
+        retriever=retriever,
+        chain_type_kwargs={"prompt": prompt}
+    )
+    
+    return qa_chain

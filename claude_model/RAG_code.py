@@ -2,10 +2,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
+import torch
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 from claude_API import build_claude_chain
+from claude_API import build_gpt_chain
 from example import speech_to_text
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -25,8 +27,8 @@ def load_vectorstore():
     # 임베딩 모델 (DB 생성할 때와 동일해야 함)
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     
-    # 저장된 벡터스토어 로드
-    vectorstore = FAISS.load_local(db_path, embeddings)
+    # 저장된 벡터스토어 로드 (allow_dangerous_deserialization=True 추가)
+    vectorstore = FAISS.load_local(db_path, embeddings, allow_dangerous_deserialization=True)
     print("✅ 벡터스토어 로딩 완료!")
     
     return vectorstore
@@ -60,7 +62,7 @@ def main():
     
     # Claude-RAG 체인 생성
     evaluate_chain = build_claude_chain(retriever, prompt, model_name="claude-3-haiku-20240307", temperature=0)
-    
+
     # 문제 추출
     print("📝 문제 추출 중...")
     question_pdf_path = "toss_part3.pdf"
