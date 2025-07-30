@@ -12,12 +12,12 @@ def create_and_save_vectorstore():
     
     print("📖 PDF 로딩 중...")
     # PDF 로드
-    loader = PyMuPDFLoader("toeic.pdf")
+    loader = PyMuPDFLoader("toeic1.pdf")
     pages = loader.load_and_split()
     
     print("✂️ 문서 분할 중...")
     # 문서 분할
-    splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=50)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
     chunks = splitter.split_documents(pages)
     
     print("🧠 임베딩 모델 로딩 중...")
